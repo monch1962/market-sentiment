@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News Sentiment Analyzer</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; }
+        form div { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="number"], select { width: calc(100% - 22px); padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:hover { background-color: #0056b3; }
+        pre { background-color: #e9e9e9; padding: 15px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>News Sentiment Analyzer</h1>
+        <p>Submit parameters to analyze news sentiment via the API.</p>
+
+        <form id="sentimentForm">
+            <div>
+                <label for="market">Market Topic:</label>
+                <input type="text" id="market" name="market" value="gold" required>
+            </div>
+            <div>
+                <label for="num_articles">Number of Articles per Query:</label>
+                <input type="number" id="num_articles" name="num_articles" value="10" min="1" required>
+            </div>
+            <div>
+                <label for="workers">Concurrent Workers:</label>
+                <input type="number" id="workers" name="workers" value="10" min="1" required>
+            </div>
+            <div>
+                <label for="analyzer">Analyzer:</label>
+                <select id="analyzer" name="analyzer">
+                    <option value="vader">VADER</option>
+                    <option value="finbert">FinBERT</option>
+                </select>
+            </div>
+            <div>
+                <label for="max_age">Max Age (e.g., 1h, 5d, 2w, 1m, 1y):</label>
+                <input type="text" id="max_age" name="max_age" value="7d">
+            </div>
+            <div>
+                <button type="submit">Analyze Sentiment</button>
+            </div>
+        </form>
+
+        <h2>API Response:</h2>
+        <pre id="responseOutput"></pre>
+    </div>
+
+    <script>
+        document.getElementById('sentimentForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            const form = event.target;
+            const formData = new FormData(form);
+            const payload = {};
+
+            for (let [key, value] of formData.entries()) {
+                if (key === 'num_articles' || key === 'workers') {
+                    payload[key] = parseInt(value);
+                } else {
+                    payload[key] = value;
+                }
+            }
+
+            // Handle optional max_age parameter
+            if (!payload.max_age) {
+                delete payload.max_age;
+            }
+
+            const responseOutput = document.getElementById('responseOutput');
+            responseOutput.textContent = 'Loading...';
+            responseOutput.classList.remove('error');
+
+            try {
+                const response = await fetch('/scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    responseOutput.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    responseOutput.textContent = `Error: ${response.status} - ${data.detail || JSON.stringify(data)}`;
+                    responseOutput.classList.add('error');
+                }
+            } catch (error) {
+                responseOutput.textContent = `Network Error: ${error.message}`;
+                responseOutput.classList.add('error');
+            }
+        });
+    </script>
+</body>
+</html>

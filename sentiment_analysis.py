@@ -94,7 +94,7 @@ class NewsSentimentScanner:
         except Exception as e:
             return f"Content not retrieved due to an error: {e}"
 
-    def run(self):
+    def run(self, return_json=False):
         market = self.config.market
         
         neutral_queries = [
@@ -155,9 +155,9 @@ class NewsSentimentScanner:
                 except Exception as e:
                     self._log_status(f"Error processing article '{item.title}': {e}")
         
-        self._output_results(articles)
+        return self._output_results(articles, return_json=return_json)
 
-    def _output_results(self, articles):
+    def _output_results(self, articles, return_json=False):
         summary = {"Positive": 0, "Negative": 0, "Neutral": 0}
         polarity_scores = []
         for article in articles:
@@ -171,19 +171,23 @@ class NewsSentimentScanner:
 
         output_target = self.config.file_path
         
+        results = {
+            'summary': {
+                'total_analyzed': analyzed_articles_count,
+                'positive': summary['Positive'],
+                'negative': summary['Negative'],
+                'neutral': summary['Neutral'],
+                'average_sentiment': float(average_sentiment),
+                'sentiment_std_dev': float(sentiment_std_dev),
+                'max_age_filter': self.config.max_age
+            },
+            'articles': articles
+        }
+
+        if return_json:
+            return results
+
         if self.config.format == 'json':
-            results = {
-                'summary': {
-                    'total_analyzed': analyzed_articles_count,
-                    'positive': summary['Positive'],
-                    'negative': summary['Negative'],
-                    'neutral': summary['Neutral'],
-                    'average_sentiment': float(average_sentiment),
-                    'sentiment_std_dev': float(sentiment_std_dev),
-                    'max_age_filter': self.config.max_age
-                },
-                'articles': articles
-            }
             if output_target:
                 with open(output_target, 'w') as f:
                     json.dump(results, f, indent=4)
