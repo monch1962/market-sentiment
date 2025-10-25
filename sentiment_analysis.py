@@ -6,6 +6,7 @@ from urllib.parse import quote
 import argparse
 import json
 import sys
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 
@@ -71,6 +72,19 @@ class NewsSentimentScanner:
 
     def _fetch_news_items(self, query):
         rss_url = f"https://news.google.com/rss/search?q={quote(query)}"
+        if self.config.max_age:
+            try:
+                # Validate and parse max_age format e.g., "5d", "10h"
+                match = re.match(r"(\d+)([hdwmy])", self.config.max_age.lower())
+                if match:
+                    number, letter = match.groups()
+                    tbs_param = f"qdr:{letter}{number}"
+                    rss_url += f"&tbs={tbs_param}"
+                else:
+                    self._log_status(f"Warning: Invalid max_age format '{self.config.max_age}'. Ignoring.")
+            except Exception as e:
+                self._log_status(f"Warning: Could not parse max_age. Ignoring. Error: {e}")
+
         feed = feedparser.parse(rss_url)
         return feed.entries[:self.config.num_articles]
 
@@ -172,7 +186,8 @@ class NewsSentimentScanner:
                     'negative': summary['Negative'],
                     'neutral': summary['Neutral'],
                     'average_sentiment': float(average_sentiment),
-                    'sentiment_std_dev': float(sentiment_std_dev)
+                    'sentiment_std_dev': float(sentiment_std_dev),
+                    'max_age_filter': self.config.max_age
                 },
                 'articles': articles
             }
@@ -200,6 +215,7 @@ class NewsSentimentScanner:
                 output_lines.append("No articles could be analyzed.")
             else:
                 output_lines.append(f"Total articles successfully analyzed: {analyzed_articles_count}")
+                output_lines.append(f"Time Filter: {self.config.max_age}")
                 for sentiment, count in summary.items():
                     percent = (count / analyzed_articles_count) * 100 if analyzed_articles_count > 0 else 0
                     output_lines.append(f"{sentiment}: {count} ({percent:.2f}%)")
@@ -221,6 +237,7 @@ def main():
     parser.add_argument("-f", "--format", choices=['text', 'json'], default='text', help="Output format.")
     parser.add_argument("-a", "--analyzer", choices=['vader', 'finbert'], default='vader', help="Sentiment analyzer to use.")
     parser.add_argument("-p", "--file_path", type=str, default=None, help="Path to save the output file.")
+    parser.add_argument("-t", "--max_age", type=str, default='7d', help="Maximum age of articles (e.g., 1h, 5d, 2w, 1m, 1y).")
     args = parser.parse_args()
     
     scanner = NewsSentimentScanner(args)

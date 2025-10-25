@@ -1,5 +1,10 @@
 import unittest
 import argparse
+import json
+import numpy as np
+from unittest.mock import patch, MagicMock
+import requests
+
 from sentiment_analysis import NewsSentimentScanner
 
 class TestSentimentAnalysis(unittest.TestCase):
@@ -11,18 +16,20 @@ class TestSentimentAnalysis(unittest.TestCase):
         finbert_config = argparse.Namespace(
             analyzer='finbert',
             format='text',
-            file_path=None
+            file_path=None,
+            max_age='7d'
         )
         cls.finbert_scanner = NewsSentimentScanner(finbert_config)
 
     def setUp(self):
         """Set up a mock config for the VADER scanner for each test."""
-        vader_config = argparse.Namespace(
+        self.vader_config = argparse.Namespace(
             analyzer='vader',
             format='text',
-            file_path=None
+            file_path=None,
+            max_age='7d'
         )
-        self.vader_scanner = NewsSentimentScanner(vader_config)
+        self.vader_scanner = NewsSentimentScanner(self.vader_config)
 
     def test_vader_positive(self):
         """Test VADER with a clearly positive sentence."""
@@ -57,6 +64,77 @@ class TestSentimentAnalysis(unittest.TestCase):
         """Test FinBERT with a neutral financial sentence."""
         polarity, sentiment = self.finbert_scanner.analyzer_func("The stock is traded on the NASDAQ stock exchange.")
         self.assertEqual(sentiment, 'Neutral')
+
+    def test_summary_calculations(self):
+        """Test the average and standard deviation calculations in the summary."""
+        articles = [
+            {'sentiment': 'Positive', 'polarity': 0.8},
+            {'sentiment': 'Positive', 'polarity': 0.6},
+            {'sentiment': 'Negative', 'polarity': -0.4},
+            {'sentiment': 'Negative', 'polarity': -0.2},
+            {'sentiment': 'Neutral', 'polarity': 0.0},
+        ]
+        
+        config = argparse.Namespace(format='json', file_path=None, analyzer='vader', max_age='7d')
+        scanner = NewsSentimentScanner(config)
+        
+        with patch('builtins.print') as mock_print:
+            scanner._output_results(articles)
+            output_json = mock_print.call_args[0][0]
+            results = json.loads(output_json)
+
+        summary = results['summary']
+        scores = [0.8, 0.6, -0.4, -0.2, 0.0]
+        self.assertAlmostEqual(summary['average_sentiment'], np.mean(scores), places=5)
+        self.assertAlmostEqual(summary['sentiment_std_dev'], np.std(scores), places=5)
+        self.assertEqual(summary['total_analyzed'], 5)
+
+    @patch('sentiment_analysis.feedparser.parse')
+    def test_max_age_url_formatting(self, mock_feedparser_parse):
+        """Test that the max_age parameter is correctly formatted into the RSS URL."""
+        mock_feedparser_parse.return_value = MagicMock(entries=[])
+
+        test_cases = {
+            '5d': 'qdr:d5',
+            '10h': 'qdr:h10',
+            '1m': 'qdr:m1',
+        }
+
+        for max_age_input, expected_tbs in test_cases.items():
+            with self.subTest(max_age=max_age_input):
+                config = argparse.Namespace(num_articles=1, max_age=max_age_input, analyzer='vader', file_path=None)
+                scanner = NewsSentimentScanner(config)
+                scanner._fetch_news_items("test query")
+                call_args, _ = mock_feedparser_parse.call_args
+                self.assertIn(f"&tbs={expected_tbs}", call_args[0])
+
+    @patch('sentiment_analysis.requests.get')
+    def test_content_scraping(self, mock_requests_get):
+        """Test the HTML content scraping logic."""
+        scanner = self.vader_scanner # Use a simple scanner instance
+
+        with self.subTest(case="Simple HTML"):
+            html_content = "<html><body><p>This is the first paragraph.</p><p>This is the second.</p></body></html>"
+            mock_requests_get.return_value = MagicMock(text=html_content)
+            result = scanner._fetch_article_content("http://fakeurl.com")
+            self.assertEqual(result, "This is the first paragraph. This is the second.")
+
+        with self.subTest(case="Nested HTML"):
+            html_content = "<html><body><p>This is <b>bold</b>.</p><p>This contains a <a>link</a>.</p></body></html>"
+            mock_requests_get.return_value = MagicMock(text=html_content)
+            result = scanner._fetch_article_content("http://fakeurl.com")
+            self.assertEqual(result, "This is bold. This contains a link.")
+
+        with self.subTest(case="No Paragraphs"):
+            html_content = "<html><body><div>This is a div.</div><span>This is a span.</span></body></html>"
+            mock_requests_get.return_value = MagicMock(text=html_content)
+            result = scanner._fetch_article_content("http://fakeurl.com")
+            self.assertEqual(result, "")
+
+        with self.subTest(case="Network Error"):
+            mock_requests_get.side_effect = requests.RequestException("Test error")
+            result = scanner._fetch_article_content("http://fakeurl.com")
+            self.assertIn("Content not retrieved due to an error", result)
 
 if __name__ == '__main__':
     unittest.main()
