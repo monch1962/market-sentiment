@@ -5,6 +5,7 @@ from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime
 from urllib.parse import quote
+import os
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
@@ -26,7 +27,7 @@ def fetch_news(query, num_articles=10):
         link = item.link
         published = item.published
         content = fetch_article_content(link)
-        
+
         articles.append({
             "title": title,
             "link": link,
@@ -54,8 +55,8 @@ def analyze_sentiment(text):
     scores = analyzer.polarity_scores(text)
     polarity = scores['compound']
 
-    # analysis = TextBlob(text)
-    # polarity = analysis.sentiment.polarity
+    #analysis = TextBlob(text)
+    #polarity = analysis.sentiment.polarity
 
     if polarity > 0.05:
         sentiment = 'Positive'
@@ -66,21 +67,21 @@ def analyze_sentiment(text):
 
     return polarity, sentiment
 
-# def analyze_sentiment(text):
-#     if not text.strip():
-#         return 0.0, 'Neutral'
+#def analyze_sentiment(text):
+    #if not text.strip():
+        #return 0.0, 'Neutral'
 
-#     inputs = finbert_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-#     with torch.no_grad():
-#         outputs = finbert_model(**inputs)
+    #inputs = finbert_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+    #with torch.no_grad():
+        #outputs = finbert_model(**inputs)
 
-#     logits = outputs.logits
-#     probabilities = torch.softmax(logits, dim=1).numpy()[0]
-#     max_index = np.argmax(probabilities)
-#     sentiment = labels[max_index]
-#     confidence = probabilities[max_index]
+    #logits = outputs.logits
+    #probabilities = torch.softmax(logits, dim=1).numpy()[0]
+    #max_index = np.argmax(probabilities)
+    #sentiment = labels[max_index]
+    #confidence = probabilities[max_index]
 
-#     return confidence, sentiment
+    #return confidence, sentiment
 
 
 def summarize_sentiments(articles):
@@ -99,21 +100,27 @@ def summarize_sentiments(articles):
         summary[sentiment] += 1
 
     total = len(articles)
+    #average_sentiment = (summary.items()['Positive'] - summary.items()['Negative']) / total
     print("\n--- Market Sentiment Summary ---")
     print(f"Total articles analyzed: {total}")
     for sentiment, count in summary.items():
         percent = (count / total) * 100
         print(f"{sentiment}: {count} ({percent:.2f}%)")
 
+    #print(f"Average sentiment(-1..1): {average_sentiment}")
+
 def main():
+    market = "gold"
+    if os.getenv('MARKET') != None:
+        market = os.getenv('MARKET')
     queries = [
-        "gold market",
-        "gold price",
-        "gold news",
-        "gold trends",
-        "gold analysis",
-        "gold forecast",
-        "gold investment"
+        f"{market} market",
+        f"{market} price",
+        f"{market} news",
+        f"{market} trends",
+        f"{market} analysis",
+        f"{market} forecast",
+        f"{market} investment"
     ]
     num_articles_per_query = 10
     all_articles = []
