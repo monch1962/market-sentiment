@@ -7,8 +7,9 @@ import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import numpy as np
 
-# Defer import of torch and numpy until needed
+# Defer import of torch until needed
 
 class NewsSentimentScanner:
     def __init__(self, config):
@@ -19,7 +20,6 @@ class NewsSentimentScanner:
         if self.config.analyzer == 'finbert':
             from transformers import AutoTokenizer, AutoModelForSequenceClassification
             import torch
-            import numpy as np
             self._log_status("Loading FinBERT model... (this may take a moment)")
             model = AutoModelForSequenceClassification.from_pretrained("yiyanghkust/finbert-tone")
             tokenizer = AutoTokenizer.from_pretrained("yiyanghkust/finbert-tone")
@@ -46,7 +46,6 @@ class NewsSentimentScanner:
 
     def _analyze_sentiment_finbert(self, text, model, tokenizer):
         import torch
-        import numpy as np
         if not text.strip():
             return 0.0, 'Neutral'
         
@@ -87,11 +86,32 @@ class NewsSentimentScanner:
             return f"Content not retrieved due to an error: {e}"
 
     def run(self):
-        queries = [
-            f"{self.config.market} market", f"{self.config.market} price", f"{self.config.market} news",
-            f"{self.config.market} trends", f"{self.config.market} analysis", f"{self.config.market} forecast",
-            f"{self.config.market} investment"
+        market = self.config.market
+        
+        neutral_queries = [
+            f'{market} market news',
+            f'{market} price analysis',
+            f'{market} trends',
+            f'{market} forecast'
         ]
+        
+        bullish_queries = [
+            f'{market} price surge OR rally',
+            f'{market} market outperforms',
+            f'"strong growth" {market}',
+            f'{market} optimism OR bullish',
+            f'"record high" {market}'
+        ]
+        
+        bearish_queries = [
+            f'{market} price crash OR slump',
+            f'{market} market bubble OR downturn',
+            f'"fears of" {market} price',
+            f'{market} volatility OR concerns',
+            f'{market} pessimism OR bearish'
+        ]
+        
+        queries = neutral_queries + bullish_queries + bearish_queries
 
         self._log_status(f"Fetching news for market: '{self.config.market}'...")
 
@@ -131,12 +151,16 @@ class NewsSentimentScanner:
 
     def _output_results(self, articles):
         summary = {"Positive": 0, "Negative": 0, "Neutral": 0}
-        analyzed_articles_count = 0
+        polarity_scores = []
         
         for article in articles:
             if article.get('sentiment'):
                 summary[article['sentiment']] += 1
-                analyzed_articles_count += 1
+                polarity_scores.append(article['polarity'])
+
+        analyzed_articles_count = len(polarity_scores)
+        average_sentiment = np.mean(polarity_scores) if polarity_scores else 0.0
+        sentiment_std_dev = np.std(polarity_scores) if polarity_scores else 0.0
 
         output_target = self.config.file_path
         
@@ -147,6 +171,8 @@ class NewsSentimentScanner:
                     'positive': summary['Positive'],
                     'negative': summary['Negative'],
                     'neutral': summary['Neutral'],
+                    'average_sentiment': float(average_sentiment),
+                    'sentiment_std_dev': float(sentiment_std_dev)
                 },
                 'articles': articles
             }
@@ -164,7 +190,7 @@ class NewsSentimentScanner:
                 output_lines.append(f"Link: {article['link']}")
                 if "Content not retrieved" in article['content']:
                     output_lines.append(f"Status: {article['content']}")
-                else:
+                elif 'sentiment' in article:
                     score_label = "Confidence" if self.config.analyzer == 'finbert' else "Polarity"
                     score = article['polarity']
                     output_lines.append(f"Sentiment: {article['sentiment']} ({score_label}: {score:.2f})")
@@ -177,6 +203,8 @@ class NewsSentimentScanner:
                 for sentiment, count in summary.items():
                     percent = (count / analyzed_articles_count) * 100 if analyzed_articles_count > 0 else 0
                     output_lines.append(f"{sentiment}: {count} ({percent:.2f}%)")
+                output_lines.append(f"\nAverage Sentiment (-1 to 1): {average_sentiment:.3f}")
+                output_lines.append(f"Sentiment Standard Deviation: {sentiment_std_dev:.3f}")
             
             if output_target:
                 with open(output_target, 'w') as f:
