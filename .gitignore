@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.tox/
+.pytest_cache/
+.coverage
+.mypy_cache/
+.pytest_cache/
+
+# NLTK data
+nltk_data/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+.Trashes
+Thumbs.db
+
+# Generated output files
+results.json
+
+# Docker build context (if any large files were generated during build)
+# For now, we copy everything needed into the image.
+# If there were large build artifacts or secrets, they would go here.
