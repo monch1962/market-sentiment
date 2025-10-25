@@ -22,6 +22,7 @@ RUN python -m nltk.downloader punkt averaged_perceptron_tagger maxent_ne_chunker
 COPY sentiment_analysis.py .
 COPY api.py .
 COPY README.md .
+COPY templates /app/templates
 
 # Expose the port that FastAPI will run on
 EXPOSE 8000

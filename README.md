@@ -19,6 +19,8 @@ The final output is a summary of the overall market sentiment (Positive, Negativ
 *   **Flexible Time-based Filtering:** Limit searches to articles published within a specific timeframe (e.g., last 5 days, 10 hours, or 1 month).
 *   **Configurable:** Control the market topic, number of articles, and more via command-line arguments.
 *   **REST API:** Expose the tool's capabilities via a FastAPI web service for programmatic access.
+*   **Healthcheck Endpoint:** A simple endpoint to verify the API's operational status.
+*   **Webform Interface:** A user-friendly web interface to submit parameters and view sentiment analysis results directly in the browser.
 *   **Dockerized Deployment:** Easily build and deploy the API within a Docker container.
 
 ## Requirements
@@ -96,6 +98,26 @@ uvicorn api:app --reload
 ```
 
 Once the server is running (typically on `http://127.0.0.1:8000`), you can access the interactive API documentation (Swagger UI) by opening your web browser to `http://127.0.0.1:8000/docs`.
+
+#### Healthcheck Endpoint
+
+To check if the API is running and responsive, you can access the healthcheck endpoint:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+This will return a JSON response like `{"status": "ok"}`.
+
+#### Webform Interface
+
+For a user-friendly way to interact with the API, open your web browser to the root URL:
+
+```
+http://127.0.0.1:8000/
+```
+
+Here you will find a form to input parameters for sentiment analysis and view the JSON results directly in your browser.
 
 #### Making an API Request
 

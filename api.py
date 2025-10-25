@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from typing import Optional
 import argparse
@@ -11,12 +13,24 @@ app = FastAPI(
     version="1.0.0",
 )
 
+templates = Jinja2Templates(directory="templates")
+
 class ScanRequest(BaseModel):
     market: str = Field(default="gold", description="The market topic to search for.")
     num_articles: int = Field(default=10, ge=1, description="Number of articles to fetch per query.")
     workers: int = Field(default=10, ge=1, description="Number of concurrent workers.")
     analyzer: str = Field(default="vader", pattern="^(vader|finbert)$", description="Sentiment analyzer to use.")
     max_age: Optional[str] = Field(default='7d', description="Maximum age of articles (e.g., 1h, 5d, 2w, 1m, 1y).")
+
+@app.get("/health", response_model=dict)
+async def health_check():
+    """Health check endpoint to confirm the API is running."""
+    return {"status": "ok"}
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    """Serve the webform for sentiment analysis."""
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/scan", response_model=dict)
 async def scan_sentiment(request: ScanRequest):
