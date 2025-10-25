@@ -196,12 +196,12 @@ class NewsSentimentScanner:
             for idx, article in enumerate(articles, 1):
                 output_lines.append(f"\nArticle {idx}: {article['title']}")
                 output_lines.append(f"Link: {article['link']}")
-                if "Content not retrieved" in article['content']:
-                    output_lines.append(f"Status: {article['content']}")
-                elif 'sentiment' in article:
+                if 'sentiment' in article:
                     score_label = "Confidence" if self.config.analyzer == 'finbert' else "Polarity"
                     score = article['polarity']
                     output_lines.append(f"Sentiment: {article['sentiment']} ({score_label}: {score:.2f})")
+                else:
+                    output_lines.append(f"Status: Could not be analyzed.")
 
             output_lines.append(f"\n--- Market Sentiment Summary (using {self.config.analyzer}) ---")
             if analyzed_articles_count == 0:

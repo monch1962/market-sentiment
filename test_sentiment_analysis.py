@@ -3,7 +3,6 @@ import argparse
 import json
 import numpy as np
 from unittest.mock import patch, MagicMock
-import requests
 
 from sentiment_analysis import NewsSentimentScanner
 
@@ -107,34 +106,6 @@ class TestSentimentAnalysis(unittest.TestCase):
                 scanner._fetch_news_items("test query")
                 call_args, _ = mock_feedparser_parse.call_args
                 self.assertIn(f"&tbs={expected_tbs}", call_args[0])
-
-    @patch('sentiment_analysis.requests.get')
-    def test_content_scraping(self, mock_requests_get):
-        """Test the HTML content scraping logic."""
-        scanner = self.vader_scanner # Use a simple scanner instance
-
-        with self.subTest(case="Simple HTML"):
-            html_content = "<html><body><p>This is the first paragraph.</p><p>This is the second.</p></body></html>"
-            mock_requests_get.return_value = MagicMock(text=html_content)
-            result = scanner._fetch_article_content("http://fakeurl.com")
-            self.assertEqual(result, "This is the first paragraph. This is the second.")
-
-        with self.subTest(case="Nested HTML"):
-            html_content = "<html><body><p>This is <b>bold</b>.</p><p>This contains a <a>link</a>.</p></body></html>"
-            mock_requests_get.return_value = MagicMock(text=html_content)
-            result = scanner._fetch_article_content("http://fakeurl.com")
-            self.assertEqual(result, "This is bold. This contains a link.")
-
-        with self.subTest(case="No Paragraphs"):
-            html_content = "<html><body><div>This is a div.</div><span>This is a span.</span></body></html>"
-            mock_requests_get.return_value = MagicMock(text=html_content)
-            result = scanner._fetch_article_content("http://fakeurl.com")
-            self.assertEqual(result, "")
-
-        with self.subTest(case="Network Error"):
-            mock_requests_get.side_effect = requests.RequestException("Test error")
-            result = scanner._fetch_article_content("http://fakeurl.com")
-            self.assertIn("Content not retrieved due to an error", result)
 
 if __name__ == '__main__':
     unittest.main()

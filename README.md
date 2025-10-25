@@ -18,20 +18,24 @@ The final output is a summary of the overall market sentiment (Positive, Negativ
 *   **File Output:** Save the analysis results directly to a file for logging or further processing.
 *   **Flexible Time-based Filtering:** Limit searches to articles published within a specific timeframe (e.g., last 5 days, 10 hours, or 1 month).
 *   **Configurable:** Control the market topic, number of articles, and more via command-line arguments.
+*   **REST API:** Expose the tool's capabilities via a FastAPI web service for programmatic access.
+*   **Dockerized Deployment:** Easily build and deploy the API within a Docker container.
 
 ## Requirements
 
-The dependencies for this project are listed in `requirements.txt`. You can install them using pip:
+The dependencies for this project are listed in `requirements.txt`. You can install them using `uv`:
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 ## Usage
 
+### Command-Line Interface (CLI)
+
 The script is run from the command line.
 
-### Basic Usage
+#### Basic Usage
 
 To run an analysis on the default market ("gold") with the default settings:
 
@@ -39,7 +43,7 @@ To run an analysis on the default market ("gold") with the default settings:
 python sentiment_analysis.py
 ```
 
-### Command-Line Arguments
+#### Command-Line Arguments
 
 You can customize the script's behavior with the following arguments:
 
@@ -53,7 +57,7 @@ You can customize the script's behavior with the following arguments:
 | `--file_path` | `-p` | Path to save the output file. | `None` |
 | `--max_age` | `-t` | Maximum age of articles. Format: a number followed by a letter (h, d, w, m, y). | `7d` |
 
-### Examples
+#### Examples
 
 **1. Analyze news for "Apple stock" using the FinBERT analyzer:**
 
@@ -78,3 +82,56 @@ python sentiment_analysis.py -m "biotech" -t 3w
 ```bash
 python sentiment_analysis.py --market "TSLA" --analyzer finbert --max_age 12h --num_articles 5
 ```
+
+### REST API
+
+The tool's capabilities are also exposed via a FastAPI web service, allowing for programmatic access.
+
+#### Running the API Server
+
+To start the API server, navigate to the project's root directory in your terminal and run:
+
+```bash
+uvicorn api:app --reload
+```
+
+Once the server is running (typically on `http://127.0.0.1:8000`), you can access the interactive API documentation (Swagger UI) by opening your web browser to `http://127.0.0.1:8000/docs`.
+
+#### Making an API Request
+
+Send a `POST` request to the `/scan` endpoint with a JSON payload containing your desired parameters. All output will be in JSON format.
+
+**Example using `curl`:**
+
+```bash
+curl -X POST "http://127.0.0.1:8000/scan" \
+     -H "Content-Type: application/json" \
+     -d '{ \
+           "market": "Apple", \
+           "num_articles": 5, \
+           "analyzer": "finbert", \
+           "max_age": "2d" \
+         }'
+```
+
+### Dockerization
+
+For easy deployment, the FastAPI application can be built and run inside a Docker container.
+
+#### 1. Build the Docker Image
+
+Navigate to your project's root directory in your terminal (where the `Dockerfile` is located) and run the following command:
+
+```bash
+docker build -t news-sentiment-api .
+```
+
+#### 2. Run the Docker Container
+
+Once the image is built, you can run your FastAPI application in a container using:
+
+```bash
+docker run -p 8000:8000 news-sentiment-api
+```
+
+After running this command, your FastAPI server will be accessible at `http://localhost:8000`. You can then open `http://localhost:8000/docs` in your web browser to see the interactive API documentation.
