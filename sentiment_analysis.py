@@ -1,6 +1,5 @@
 import feedparser
-import requests
-from bs4 import BeautifulSoup
+from newspaper import Article
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from urllib.parse import quote
 import argparse
@@ -29,7 +28,6 @@ class NewsSentimentScanner:
             return self._analyze_sentiment_vader
 
     def _log_status(self, message):
-        # Log status updates to stderr to not interfere with stdout (e.g., for JSON output)
         if self.config.format == 'text' or self.config.file_path:
             print(message, file=sys.stderr)
 
@@ -74,7 +72,6 @@ class NewsSentimentScanner:
         rss_url = f"https://news.google.com/rss/search?q={quote(query)}"
         if self.config.max_age:
             try:
-                # Validate and parse max_age format e.g., "5d", "10h"
                 match = re.match(r"(\d+)([hdwmy])", self.config.max_age.lower())
                 if match:
                     number, letter = match.groups()
@@ -90,13 +87,11 @@ class NewsSentimentScanner:
 
     def _fetch_article_content(self, url):
         try:
-            response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            paragraphs = soup.find_all('p')
-            content = ' '.join([p.get_text() for p in paragraphs])
-            return content.strip()
-        except requests.RequestException as e:
+            article = Article(url)
+            article.download()
+            article.parse()
+            return article.text
+        except Exception as e:
             return f"Content not retrieved due to an error: {e}"
 
     def run(self):
@@ -147,16 +142,15 @@ class NewsSentimentScanner:
                 item = future_to_item[future]
                 try:
                     content = future.result()
-                    article_data = {
-                        "title": item.title,
-                        "link": item.link,
-                        "published": item.published,
-                        "content": content
-                    }
-                    if "Content not retrieved" not in content:
-                        polarity, sentiment = self.analyzer_func(item.title + ' ' + content)
-                        article_data['polarity'] = polarity
-                        article_data['sentiment'] = sentiment
+                    article_data = {"title": item.title, "link": item.link, "published": item.published, "content": content}
+                    
+                    text_to_analyze = item.title
+                    if "Content not retrieved" not in content and content:
+                        text_to_analyze += ' ' + content
+                    
+                    polarity, sentiment = self.analyzer_func(text_to_analyze)
+                    article_data['polarity'] = polarity
+                    article_data['sentiment'] = sentiment
                     articles.append(article_data)
                 except Exception as e:
                     self._log_status(f"Error processing article '{item.title}': {e}")
@@ -166,7 +160,6 @@ class NewsSentimentScanner:
     def _output_results(self, articles):
         summary = {"Positive": 0, "Negative": 0, "Neutral": 0}
         polarity_scores = []
-        
         for article in articles:
             if article.get('sentiment'):
                 summary[article['sentiment']] += 1
