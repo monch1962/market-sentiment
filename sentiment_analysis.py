@@ -1,144 +1,202 @@
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from datetime import datetime
 from urllib.parse import quote
-import os
+import argparse
+import json
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
-import numpy as np
+# Defer import of torch and numpy until needed
 
-finbert_model = AutoModelForSequenceClassification.from_pretrained("yiyanghkust/finbert-tone")
-finbert_tokenizer = AutoTokenizer.from_pretrained("yiyanghkust/finbert-tone")
+class NewsSentimentScanner:
+    def __init__(self, config):
+        self.config = config
+        self.analyzer_func = self._get_analyzer()
 
-labels = ['Positive', 'Negative', 'Neutral']
+    def _get_analyzer(self):
+        if self.config.analyzer == 'finbert':
+            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            import torch
+            import numpy as np
+            self._log_status("Loading FinBERT model... (this may take a moment)")
+            model = AutoModelForSequenceClassification.from_pretrained("yiyanghkust/finbert-tone")
+            tokenizer = AutoTokenizer.from_pretrained("yiyanghkust/finbert-tone")
+            return lambda text: self._analyze_sentiment_finbert(text, model, tokenizer)
+        else:
+            return self._analyze_sentiment_vader
 
-def fetch_news(query, num_articles=10):
-    rss_url = f"https://news.google.com/rss/search?q={quote(query)}"
-    feed = feedparser.parse(rss_url)
-    news_items = feed.entries[:num_articles]
+    def _log_status(self, message):
+        # Log status updates to stderr to not interfere with stdout (e.g., for JSON output)
+        if self.config.format == 'text' or self.config.file_path:
+            print(message, file=sys.stderr)
 
-    articles = []
-    for item in news_items:
-        title = item.title
-        link = item.link
-        published = item.published
-        content = fetch_article_content(link)
+    def _analyze_sentiment_vader(self, text):
+        analyzer = SentimentIntensityAnalyzer()
+        scores = analyzer.polarity_scores(text)
+        polarity = scores['compound']
+        if polarity > 0.05:
+            sentiment = 'Positive'
+        elif polarity < -0.05:
+            sentiment = 'Negative'
+        else:
+            sentiment = 'Neutral'
+        return polarity, sentiment
 
-        articles.append({
-            "title": title,
-            "link": link,
-            "published": published,
-            "content": content
-        })
+    def _analyze_sentiment_finbert(self, text, model, tokenizer):
+        import torch
+        import numpy as np
+        if not text.strip():
+            return 0.0, 'Neutral'
+        
+        labels = ['Neutral', 'Positive', 'Negative']
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding=True)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        
+        logits = outputs.logits
+        probabilities = torch.softmax(logits, dim=1).numpy()[0]
+        max_index = np.argmax(probabilities)
+        sentiment = labels[max_index]
+        confidence = probabilities[max_index]
+        
+        if sentiment == 'Positive':
+            polarity = confidence
+        elif sentiment == 'Negative':
+            polarity = -confidence
+        else:
+            polarity = 0.0
 
-    return articles
+        return float(polarity), sentiment
 
-def fetch_article_content(url):
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
+    def _fetch_news_items(self, query):
+        rss_url = f"https://news.google.com/rss/search?q={quote(query)}"
+        feed = feedparser.parse(rss_url)
+        return feed.entries[:self.config.num_articles]
 
-        paragraphs = soup.find_all('p')
-        content = ' '.join([p.get_text() for p in paragraphs])
-        return content.strip()
-    except requests.RequestException:
-        return "Content not retrieved."
+    def _fetch_article_content(self, url):
+        try:
+            response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            paragraphs = soup.find_all('p')
+            content = ' '.join([p.get_text() for p in paragraphs])
+            return content.strip()
+        except requests.RequestException as e:
+            return f"Content not retrieved due to an error: {e}"
 
-def analyze_sentiment(text):
+    def run(self):
+        queries = [
+            f"{self.config.market} market", f"{self.config.market} price", f"{self.config.market} news",
+            f"{self.config.market} trends", f"{self.config.market} analysis", f"{self.config.market} forecast",
+            f"{self.config.market} investment"
+        ]
 
-    analyzer = SentimentIntensityAnalyzer()
-    scores = analyzer.polarity_scores(text)
-    polarity = scores['compound']
+        self._log_status(f"Fetching news for market: '{self.config.market}'...")
 
-    #analysis = TextBlob(text)
-    #polarity = analysis.sentiment.polarity
+        all_news_items = []
+        with ThreadPoolExecutor(max_workers=self.config.workers) as executor:
+            future_to_query = {executor.submit(self._fetch_news_items, query): query for query in queries}
+            for future in as_completed(future_to_query):
+                try:
+                    all_news_items.extend(future.result())
+                except Exception as e:
+                    self._log_status(f"Error fetching news for query '{future_to_query[future]}': {e}")
 
-    if polarity > 0.05:
-        sentiment = 'Positive'
-    elif polarity < -0.05:
-        sentiment = 'Negative'
-    else:
-        sentiment = 'Neutral'
+        self._log_status(f"Found {len(all_news_items)} total articles. Fetching content...")
 
-    return polarity, sentiment
+        articles = []
+        with ThreadPoolExecutor(max_workers=self.config.workers) as executor:
+            future_to_item = {executor.submit(self._fetch_article_content, item.link): item for item in all_news_items}
+            for future in as_completed(future_to_item):
+                item = future_to_item[future]
+                try:
+                    content = future.result()
+                    article_data = {
+                        "title": item.title,
+                        "link": item.link,
+                        "published": item.published,
+                        "content": content
+                    }
+                    if "Content not retrieved" not in content:
+                        polarity, sentiment = self.analyzer_func(item.title + ' ' + content)
+                        article_data['polarity'] = polarity
+                        article_data['sentiment'] = sentiment
+                    articles.append(article_data)
+                except Exception as e:
+                    self._log_status(f"Error processing article '{item.title}': {e}")
+        
+        self._output_results(articles)
 
-#def analyze_sentiment(text):
-    #if not text.strip():
-        #return 0.0, 'Neutral'
+    def _output_results(self, articles):
+        summary = {"Positive": 0, "Negative": 0, "Neutral": 0}
+        analyzed_articles_count = 0
+        
+        for article in articles:
+            if article.get('sentiment'):
+                summary[article['sentiment']] += 1
+                analyzed_articles_count += 1
 
-    #inputs = finbert_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-    #with torch.no_grad():
-        #outputs = finbert_model(**inputs)
+        output_target = self.config.file_path
+        
+        if self.config.format == 'json':
+            results = {
+                'summary': {
+                    'total_analyzed': analyzed_articles_count,
+                    'positive': summary['Positive'],
+                    'negative': summary['Negative'],
+                    'neutral': summary['Neutral'],
+                },
+                'articles': articles
+            }
+            if output_target:
+                with open(output_target, 'w') as f:
+                    json.dump(results, f, indent=4)
+                self._log_status(f"Output saved to {output_target}")
+            else:
+                print(json.dumps(results, indent=4))
+        else: # text format
+            output_lines = []
+            output_lines.append("--- Analysis Results ---")
+            for idx, article in enumerate(articles, 1):
+                output_lines.append(f"\nArticle {idx}: {article['title']}")
+                output_lines.append(f"Link: {article['link']}")
+                if "Content not retrieved" in article['content']:
+                    output_lines.append(f"Status: {article['content']}")
+                else:
+                    score_label = "Confidence" if self.config.analyzer == 'finbert' else "Polarity"
+                    score = article['polarity']
+                    output_lines.append(f"Sentiment: {article['sentiment']} ({score_label}: {score:.2f})")
 
-    #logits = outputs.logits
-    #probabilities = torch.softmax(logits, dim=1).numpy()[0]
-    #max_index = np.argmax(probabilities)
-    #sentiment = labels[max_index]
-    #confidence = probabilities[max_index]
-
-    #return confidence, sentiment
-
-
-def summarize_sentiments(articles):
-    summary = {
-        "Positive": 0,
-        "Negative": 0,
-        "Neutral": 0
-    }
-
-    for article in articles:
-        # print("-"*25)
-        # print(f"\n--- Analyzing Article: {article['title']} ---")
-        # print(f"Published: {article['published']}")
-        # print(article['content'])
-        _, sentiment = analyze_sentiment(article['title']) # + " " + article['content'])
-        summary[sentiment] += 1
-
-    total = len(articles)
-    #average_sentiment = (summary.items()['Positive'] - summary.items()['Negative']) / total
-    print("\n--- Market Sentiment Summary ---")
-    print(f"Total articles analyzed: {total}")
-    for sentiment, count in summary.items():
-        percent = (count / total) * 100
-        print(f"{sentiment}: {count} ({percent:.2f}%)")
-
-    #print(f"Average sentiment(-1..1): {average_sentiment}")
+            output_lines.append(f"\n--- Market Sentiment Summary (using {self.config.analyzer}) ---")
+            if analyzed_articles_count == 0:
+                output_lines.append("No articles could be analyzed.")
+            else:
+                output_lines.append(f"Total articles successfully analyzed: {analyzed_articles_count}")
+                for sentiment, count in summary.items():
+                    percent = (count / analyzed_articles_count) * 100 if analyzed_articles_count > 0 else 0
+                    output_lines.append(f"{sentiment}: {count} ({percent:.2f}%)")
+            
+            if output_target:
+                with open(output_target, 'w') as f:
+                    f.write("\n".join(output_lines))
+                self._log_status(f"Output saved to {output_target}")
+            else:
+                print("\n".join(output_lines))
 
 def main():
-    market = "gold"
-    if os.getenv('MARKET') != None:
-        market = os.getenv('MARKET')
-    queries = [
-        f"{market} market",
-        f"{market} price",
-        f"{market} news",
-        f"{market} trends",
-        f"{market} analysis",
-        f"{market} forecast",
-        f"{market} investment"
-    ]
-    num_articles_per_query = 10
-    all_articles = []
-
-    for query in queries:
-        print(f"Fetching news articles for '{query}'...\n")
-        articles = fetch_news(query, num_articles_per_query)
-        all_articles.extend(articles)
-
-    for idx, article in enumerate(all_articles, 1):
-        print(f"Article {idx}: {article['title']}")
-        print(f"Link: {article['link']}")
-        print(f"Published: {article['published']}")
-
-        polarity, sentiment = analyze_sentiment(article['title'])  # or article['content']
-        print(f"Sentiment: {sentiment} (Polarity: {polarity:.2f})\n")
-
-    summarize_sentiments(all_articles)
+    parser = argparse.ArgumentParser(description="Analyze news sentiment for a given market.")
+    parser.add_argument("-m", "--market", default="gold", help="The market topic to search for.")
+    parser.add_argument("-n", "--num_articles", type=int, default=10, help="Number of articles to fetch per query.")
+    parser.add_argument("-w", "--workers", type=int, default=10, help="Number of concurrent workers.")
+    parser.add_argument("-f", "--format", choices=['text', 'json'], default='text', help="Output format.")
+    parser.add_argument("-a", "--analyzer", choices=['vader', 'finbert'], default='vader', help="Sentiment analyzer to use.")
+    parser.add_argument("-p", "--file_path", type=str, default=None, help="Path to save the output file.")
+    args = parser.parse_args()
+    
+    scanner = NewsSentimentScanner(args)
+    scanner.run()
 
 if __name__ == "__main__":
     main()
