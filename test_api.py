@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch, MagicMock
 import argparse
 import numpy as np
-from fastapi.testclient import TestClient # Import TestClient
+from fastapi.testclient import TestClient
 
 from api import app
 from sentiment_analysis import NewsSentimentScanner
@@ -48,6 +48,19 @@ def mock_get_analyzer():
     with patch.object(NewsSentimentScanner, '_get_analyzer') as mock_analyzer:
         mock_analyzer.return_value = lambda text: (0.5, "Positive") # Mock a simple analyzer
         yield mock_analyzer
+
+def test_health_endpoint(client):
+    """Test the /health endpoint."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+def test_root_endpoint_webform(client):
+    """Test the root endpoint serves the webform."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers['content-type']
+    assert "<form id=\"sentimentForm\">" in response.text
 
 def test_scan_endpoint_success(client, mock_scanner_run, mock_get_analyzer):
     """Test the /scan endpoint with a valid payload for success."""
