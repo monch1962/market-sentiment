@@ -14,7 +14,7 @@ fastapi-cli==0.0.14
 fastapi-cloud-cli==0.3.1
 feedfinder2==0.0.4
 feedparser==6.0.11
-filelock==3.18.0
+filelock==3.20.1
 fsspec==2025.3.2
 h11==0.16.0
 hf-xet==1.2.0
